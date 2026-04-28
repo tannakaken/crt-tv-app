@@ -5,58 +5,94 @@ interface CrtMonitorProps {
   stream: MediaStream | null;
   noiseIntensity?: number;
   isHorror?: boolean;
+  noiseDelay?: number;
 }
 
-const CrtMonitor: React.FC<CrtMonitorProps> = ({ stream, noiseIntensity = 0.15, isHorror = false }) => {
+const CrtMonitor: React.FC<CrtMonitorProps> = ({ stream, noiseIntensity = 0.15, isHorror = false, noiseDelay = 0 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const horrorImageRef = useRef<HTMLCanvasElement | null>(null);
+  const capturedFrameRef = useRef<ImageData | null>(null);
+  const noiseEnabledRef = useRef(noiseDelay <= 0);
 
-  // ホラー画像の生成 (不気味な顔のようなもの)
   useEffect(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 600;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      // 背景
-      ctx.fillStyle = '#050505';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // 目（不気味な赤）
-      ctx.fillStyle = '#880000';
-      ctx.beginPath();
-      ctx.ellipse(300, 250, 40, 60, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(500, 250, 40, 60, 0, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // 瞳（真っ黒）
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(300, 250, 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(500, 250, 10, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // 口
-      ctx.strokeStyle = '#330000';
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(250, 450);
-      ctx.bezierCurveTo(350, 500, 450, 500, 550, 450);
-      ctx.stroke();
-      
-      // 全体的なノイズ・テクスチャ
-      for (let i = 0; i < 5000; i++) {
-        ctx.fillStyle = `rgba(${Math.random() * 50}, 0, 0, ${Math.random() * 0.5})`;
-        ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 2, 2);
+    if (noiseDelay > 0) {
+      const timer = setTimeout(() => {
+        noiseEnabledRef.current = true;
+      }, noiseDelay * 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [noiseDelay]);
+
+  const applyWaveDistortion = (imageData: ImageData, wavePhase: number): ImageData => {
+    const { width, height, data } = imageData;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    const newImageData = tempCtx.createImageData(width, height);
+    const newData = newImageData.data;
+
+    const frequency = 0.04;
+    const amplitude = 16;
+
+    // 水平波形歪み
+    for (let y = 0; y < height; y++) {
+      const offset = Math.sin(y * frequency + wavePhase) * amplitude;
+      for (let x = 0; x < width; x++) {
+        const srcX = Math.round(x + offset);
+        if (srcX >= 0 && srcX < width) {
+          const srcIdx = (y * width + srcX) * 4;
+          const dstIdx = (y * width + x) * 4;
+          newData[dstIdx] = data[srcIdx];
+          newData[dstIdx + 1] = data[srcIdx + 1];
+          newData[dstIdx + 2] = data[srcIdx + 2];
+          newData[dstIdx + 3] = data[srcIdx + 3];
+        }
       }
     }
-    horrorImageRef.current = canvas;
-  }, []);
+    // 垂直波形歪み
+    const finalResult = tempCtx.createImageData(width, height);
+    const verticalData = finalResult.data;
+
+    const verticalFrequency = 0.03;
+    const verticalAmplitude = 18;
+
+    for (let x = 0; x < width; x++) {
+      const offset = Math.sin(x * verticalFrequency + wavePhase) * verticalAmplitude;
+      for (let y = 0; y < height; y++) {
+      const srcY = Math.round(y + offset);
+      if (srcY >= 0 && srcY < height) {
+        const srcIdx = (srcY * width + x) * 4;
+        const dstIdx = (y * width + x) * 4;
+        verticalData[dstIdx] = newData[srcIdx];
+        verticalData[dstIdx + 1] = newData[srcIdx + 1];
+        verticalData[dstIdx + 2] = newData[srcIdx + 2];
+        verticalData[dstIdx + 3] = newData[srcIdx + 3];
+      }
+      }
+    }
+
+    return finalResult;
+  };
+
+  const applyRedBlackFilter = (imageData: ImageData): ImageData => {
+    const { width, height, data } = imageData;
+    const newImageData = new ImageData(width, height);
+    const newData = newImageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      newData[i] = Math.min(255, gray * 1.5 + 80);
+      newData[i + 1] = Math.max(0, gray * 0.2 - 40);
+      newData[i + 2] = Math.max(0, gray * 0.2 - 40);
+      newData[i + 3] = 255;
+    }
+
+    return newImageData;
+  };
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -89,37 +125,46 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({ stream, noiseIntensity = 0.15, 
         ctx.save();
         ctx.translate(jitterX, jitterY);
         
-        if (isHorror && horrorImageRef.current) {
-          ctx.drawImage(horrorImageRef.current, 0, 0, canvas.width, canvas.height);
-          // ホラー時はさらに赤みを加える
-          ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (isHorror) {
+          if (!capturedFrameRef.current && video.readyState === video.HAVE_ENOUGH_DATA) {
+            try {
+              ctx.drawImage(video, -5, -5, canvas.width + 10, canvas.height + 10);
+              capturedFrameRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } catch {}
+          }
+          if (capturedFrameRef.current) {
+            const distorted = applyWaveDistortion(capturedFrameRef.current, 0);
+            const filtered = applyRedBlackFilter(distorted);
+            ctx.putImageData(filtered, 0, 0);
+          }
         } else {
           ctx.drawImage(video, -5, -5, canvas.width + 10, canvas.height + 10);
         }
         ctx.restore();
 
         // 2. 砂嵐ノイズ
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
+        if (noiseEnabledRef.current) {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
 
-        for (let i = 0; i < data.length; i += 4) {
-          if (Math.random() < noiseIntensity) {
-            const noise = Math.random() * 255;
-            data[i] = noise;
-            data[i + 1] = noise;
-            data[i + 2] = noise;
-            data[i + 3] = 255; 
+          for (let i = 0; i < data.length; i += 4) {
+            if (Math.random() < noiseIntensity) {
+              const noise = Math.random() * 255;
+              data[i] = noise;
+              data[i + 1] = noise;
+              data[i + 2] = noise;
+              data[i + 3] = 255; 
+            }
           }
-        }
-        ctx.putImageData(imageData, 0, 0);
+          ctx.putImageData(imageData, 0, 0);
 
-        // 3. 水平同期ズレ
-        if (Math.random() > (1 - noiseIntensity)) {
-          const sliceY = Math.random() * canvas.height;
-          const sliceH = Math.random() * (20 + noiseIntensity * 100);
-          const hOffset = (Math.random() - 0.5) * (20 + noiseIntensity * 200);
-          ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceH, hOffset, sliceY, canvas.width, sliceH);
+          // 3. 水平同期ズレ
+          if (Math.random() > (1 - noiseIntensity)) {
+            const sliceY = Math.random() * canvas.height;
+            const sliceH = Math.random() * (20 + noiseIntensity * 100);
+            const hOffset = (Math.random() - 0.5) * (20 + noiseIntensity * 200);
+            ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceH, hOffset, sliceY, canvas.width, sliceH);
+          }
         }
       }
 

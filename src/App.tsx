@@ -8,10 +8,12 @@ function App() {
   const [noiseIntensity, setNoiseIntensity] = useState(0.05);
   const [isHorror, setIsHorror] = useState(false);
   const [phase, setPhase] = useState<'normal' | 'glitching' | 'whiteout' | 'reveal'>('normal');
+  const [showModal, setShowModal] = useState(true);
 
-  useEffect(() => {
+  const handleStart = () => {
+    setShowModal(false);
     startCamera();
-  }, [startCamera]);
+  };
 
   useEffect(() => {
     if (!stream) return;
@@ -63,11 +65,20 @@ function App() {
 
   return (
     <div className="app-container horror-mode">
+      {showModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>あなたの真の姿を映してください</h2>
+            <button onClick={handleStart}>OK</button>
+          </div>
+        </div>
+      )}
       <main className="main-content full-screen">
         <CrtMonitor 
           stream={stream} 
           noiseIntensity={noiseIntensity} 
-          isHorror={isHorror} 
+          isHorror={isHorror}
+          noiseDelay={5}
         />
       </main>
     </div>

@@ -1,0 +1,100 @@
+.monitor-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background-color: transparent;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.screen-frame {
+  position: relative;
+  width: 95vw;
+  height: 95vh;
+  max-width: none;
+  background-color: #000;
+  border: 10px solid #222;
+  border-radius: 20px;
+  box-shadow: 0 0 100px rgba(0, 0, 0, 1);
+  overflow: hidden;
+}
+
+.crt-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: contrast(1.2) brightness(1.1) saturate(0.8);
+}
+
+/* 走査線 */
+.scanlines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.25) 50%
+  ),
+  linear-gradient(
+    90deg,
+    rgba(255, 0, 0, 0.06),
+    rgba(0, 255, 0, 0.02),
+    rgba(0, 0, 255, 0.06)
+  );
+  background-size: 100% 4px, 3px 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ちらつき（フリッカー） */
+.flicker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(18, 16, 16, 0.1);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3;
+  animation: flicker 0.15s infinite;
+}
+
+@keyframes flicker {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.05; }
+  100% { opacity: 0.1; }
+}
+
+/* 周辺減光（ビネット） */
+.vignette {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    circle,
+    transparent 50%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* 画面の湾曲（疑似的） */
+.screen-frame::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.05), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.05));
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none;
+}

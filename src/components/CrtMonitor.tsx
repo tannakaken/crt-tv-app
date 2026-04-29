@@ -77,6 +77,58 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({
     return newImageData;
   };
 
+  const applyWaveDistortion = (imageData: ImageData, wavePhase: number): ImageData => {
+    const { width, height, data } = imageData;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    const newImageData = tempCtx.createImageData(width, height);
+    const newData = newImageData.data;
+
+    const frequency = 0.02;
+    const amplitude = 6;
+
+    // 水平波形歪み
+    for (let y = 0; y < height; y++) {
+      const offset = Math.sin(y * frequency + wavePhase) * amplitude;
+      for (let x = 0; x < width; x++) {
+        const srcX = Math.round(x + offset);
+        if (srcX >= 0 && srcX < width) {
+          const srcIdx = (y * width + srcX) * 4;
+          const dstIdx = (y * width + x) * 4;
+          newData[dstIdx] = data[srcIdx];
+          newData[dstIdx + 1] = data[srcIdx + 1];
+          newData[dstIdx + 2] = data[srcIdx + 2];
+          newData[dstIdx + 3] = data[srcIdx + 3];
+        }
+      }
+    }
+    // 垂直波形歪み
+    const finalResult = tempCtx.createImageData(width, height);
+    const verticalData = finalResult.data;
+
+    const verticalFrequency = 0.01;
+    const verticalAmplitude = 8;
+
+    for (let x = 0; x < width; x++) {
+      const offset = Math.sin(x * verticalFrequency + wavePhase) * verticalAmplitude;
+      for (let y = 0; y < height; y++) {
+      const srcY = Math.round(y + offset);
+      if (srcY >= 0 && srcY < height) {
+        const srcIdx = (srcY * width + x) * 4;
+        const dstIdx = (y * width + x) * 4;
+        verticalData[dstIdx] = newData[srcIdx];
+        verticalData[dstIdx + 1] = newData[srcIdx + 1];
+        verticalData[dstIdx + 2] = newData[srcIdx + 2];
+        verticalData[dstIdx + 3] = newData[srcIdx + 3];
+      }
+      }
+    }
+
+    return finalResult;
+  };
+
   const applyHorrorFilter = (imageData: ImageData): ImageData => {
     const { data } = imageData;
     for (let i = 0; i < data.length; i += 4) {
@@ -142,6 +194,9 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({
               processedData = applySwirlDistortion(processedData, cx, cy, 250, Math.PI * 2.5);
             }
 
+            // 波形歪み
+            const wavePhase = performance.now() * 0.005;
+            processedData = applyWaveDistortion(processedData, wavePhase);
             // ホラーフィルター
             processedData = applyHorrorFilter(processedData);
             

@@ -7,9 +7,9 @@ import './App.css';
 function App() {
   const { stream, startCamera } = useCamera();
   const { results: faceResults } = useFaceDetection(stream);
-  const [noiseIntensity, setNoiseIntensity] = useState(0.05);
+  const [noiseIntensity, setNoiseIntensity] = useState(0);
   const [isHorror, setIsHorror] = useState(false);
-  const [phase, setPhase] = useState<'normal' | 'glitching' | 'whiteout' | 'reveal'>('normal');
+  const [phase, setPhase] = useState<'normal' | 'glitch-waiting' | 'glitching' | 'whiteout' | 'reveal'>('normal');
   const [showModal, setShowModal] = useState(true);
 
   const handleStart = () => {
@@ -19,7 +19,19 @@ function App() {
 
   useEffect(() => {
     if (phase === 'normal' && faceResults && faceResults.faceLandmarks.length > 0) {
-      setPhase('glitching');
+      // 顔検知後、2秒待ってからノイズを開始
+      setPhase('glitch-waiting');
+      let counter = 0;
+      // setTimeoutだと、カメラの処理が重くて、２秒経ってもなかなか処理が呼ばれない。
+      const timer = requestAnimationFrame(function waitForGlitch() {
+        counter++;
+        if (counter >= 120) { // 約2秒後
+          setPhase('glitching');
+        } else {
+          requestAnimationFrame(waitForGlitch);
+        }
+      });
+      return () => cancelAnimationFrame(timer);
     }
   }, [faceResults, phase]);
 
@@ -32,7 +44,7 @@ function App() {
             setPhase('whiteout');
             return 1;
           }
-          return prev + 0.05; // 少し速める
+          return prev + 0.02; // 少し速める
         });
       }, 50);
       return () => clearInterval(interval);

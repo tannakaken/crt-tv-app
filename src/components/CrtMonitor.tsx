@@ -17,7 +17,6 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const capturedFrameRef = useRef<ImageData | null>(null);
   const faceCenterRef = useRef<{x: number, y: number} | null>(null);
 
   useEffect(() => {
@@ -174,34 +173,31 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
         if (isHorror) {
-          // ホラーモード：キャプチャした画像を表示
-          if (!capturedFrameRef.current && video.readyState === video.HAVE_ENOUGH_DATA) {
-            ctx.drawImage(video, 0, 0);
-            capturedFrameRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // ホラーモード：歪みエフェクトを入れた画像を表示
+          
+          ctx.drawImage(video, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+          let processedData = new ImageData(
+            new Uint8ClampedArray(imageData.data),
+            imageData.width,
+            imageData.height
+          );
+
+          // 渦巻き歪み
+          if (faceCenterRef.current) {
+            const cx = faceCenterRef.current.x * canvas.width;
+            const cy = faceCenterRef.current.y * canvas.height;
+            processedData = applySwirlDistortion(processedData, cx, cy, 250, Math.PI * 2.5);
           }
 
-          if (capturedFrameRef.current) {
-            let processedData = new ImageData(
-              new Uint8ClampedArray(capturedFrameRef.current.data),
-              capturedFrameRef.current.width,
-              capturedFrameRef.current.height
-            );
-
-            // 渦巻き歪み
-            if (faceCenterRef.current) {
-              const cx = faceCenterRef.current.x * canvas.width;
-              const cy = faceCenterRef.current.y * canvas.height;
-              processedData = applySwirlDistortion(processedData, cx, cy, 250, Math.PI * 2.5);
-            }
-
-            // 波形歪み
-            const wavePhase = performance.now() * 0.005;
-            processedData = applyWaveDistortion(processedData, wavePhase);
-            // ホラーフィルター
-            processedData = applyHorrorFilter(processedData);
-            
-            ctx.putImageData(processedData, 0, 0);
-          }
+          // 波形歪み
+          const wavePhase = performance.now() * 0.005;
+          processedData = applyWaveDistortion(processedData, wavePhase);
+          // ホラーフィルター
+          processedData = applyHorrorFilter(processedData);
+          
+          ctx.putImageData(processedData, 0, 0);
         } else {
           // 通常モード：カメラ映像
           ctx.drawImage(video, 0, 0);

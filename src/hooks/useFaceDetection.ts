@@ -5,8 +5,6 @@ import type { FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 export const useFaceDetection = (stream: MediaStream | null) => {
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [results, setResults] = useState<FaceLandmarkerResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const requestRef = useRef<number>(null);
 
@@ -26,11 +24,8 @@ export const useFaceDetection = (stream: MediaStream | null) => {
           numFaces: 1
         });
         setFaceLandmarker(landmarker);
-        setIsLoading(false);
       } catch (err) {
         console.error("FaceLandmarker initialization failed:", err);
-        setError("Failed to load face detection model.");
-        setIsLoading(false);
       }
     };
 

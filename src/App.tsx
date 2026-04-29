@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useCamera } from './hooks/useCamera';
+import { useFaceDetection } from './hooks/useFaceDetection';
 import CrtMonitor from './components/CrtMonitor';
 import './App.css';
 
 function App() {
   const { stream, startCamera } = useCamera();
+  const { results: faceResults } = useFaceDetection(stream);
   const [noiseIntensity, setNoiseIntensity] = useState(0.05);
   const [isHorror, setIsHorror] = useState(false);
   const [phase, setPhase] = useState<'normal' | 'glitching' | 'whiteout' | 'reveal'>('normal');
@@ -16,15 +18,10 @@ function App() {
   };
 
   useEffect(() => {
-    if (!stream) return;
-
-    // 演出のタイムライン
-    const timer = setTimeout(() => {
+    if (phase === 'normal' && faceResults && faceResults.faceLandmarks.length > 0) {
       setPhase('glitching');
-    }, 5000); // 5秒後にノイズが強くなり始める
-
-    return () => clearTimeout(timer);
-  }, [stream]);
+    }
+  }, [faceResults, phase]);
 
   useEffect(() => {
     if (phase === 'glitching') {
@@ -35,9 +32,9 @@ function App() {
             setPhase('whiteout');
             return 1;
           }
-          return prev + 0.02;
+          return prev + 0.05; // 少し速める
         });
-      }, 100);
+      }, 50);
       return () => clearInterval(interval);
     }
 
@@ -45,16 +42,16 @@ function App() {
       const timer = setTimeout(() => {
         setIsHorror(true);
         setPhase('reveal');
-      }, 2000); // 完全に真っ白な状態を2秒維持
+      }, 1500); 
       return () => clearTimeout(timer);
     }
 
     if (phase === 'reveal') {
       const interval = setInterval(() => {
         setNoiseIntensity(prev => {
-          if (prev <= 0.15) {
+          if (prev <= 0.2) {
             clearInterval(interval);
-            return 0.15;
+            return 0.2;
           }
           return prev - 0.05;
         });
@@ -78,7 +75,7 @@ function App() {
           stream={stream} 
           noiseIntensity={noiseIntensity} 
           isHorror={isHorror}
-          noiseDelay={5}
+          faceLandmarks={faceResults?.faceLandmarks?.[0]}
         />
       </main>
     </div>

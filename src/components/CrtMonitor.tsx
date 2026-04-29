@@ -1,98 +1,24 @@
 import React, { useRef, useEffect } from 'react';
+import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import './CrtMonitor.css';
 
 interface CrtMonitorProps {
   stream: MediaStream | null;
   noiseIntensity?: number;
   isHorror?: boolean;
-  noiseDelay?: number;
+  faceLandmarks?: NormalizedLandmark[];
 }
 
-const CrtMonitor: React.FC<CrtMonitorProps> = ({ stream, noiseIntensity = 0.15, isHorror = false, noiseDelay = 0 }) => {
+const CrtMonitor: React.FC<CrtMonitorProps> = ({ 
+  stream, 
+  noiseIntensity = 0.15, 
+  isHorror = false,
+  faceLandmarks
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const capturedFrameRef = useRef<ImageData | null>(null);
-  const noiseEnabledRef = useRef(noiseDelay <= 0);
-
-  useEffect(() => {
-    if (noiseDelay > 0) {
-      const timer = setTimeout(() => {
-        noiseEnabledRef.current = true;
-      }, noiseDelay * 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [noiseDelay]);
-
-  const applyWaveDistortion = (imageData: ImageData, wavePhase: number): ImageData => {
-    const { width, height, data } = imageData;
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width;
-    tempCanvas.height = height;
-    const tempCtx = tempCanvas.getContext('2d')!;
-    const newImageData = tempCtx.createImageData(width, height);
-    const newData = newImageData.data;
-
-    const frequency = 0.04;
-    const amplitude = 16;
-
-    // 水平波形歪み
-    for (let y = 0; y < height; y++) {
-      const offset = Math.sin(y * frequency + wavePhase) * amplitude;
-      for (let x = 0; x < width; x++) {
-        const srcX = Math.round(x + offset);
-        if (srcX >= 0 && srcX < width) {
-          const srcIdx = (y * width + srcX) * 4;
-          const dstIdx = (y * width + x) * 4;
-          newData[dstIdx] = data[srcIdx];
-          newData[dstIdx + 1] = data[srcIdx + 1];
-          newData[dstIdx + 2] = data[srcIdx + 2];
-          newData[dstIdx + 3] = data[srcIdx + 3];
-        }
-      }
-    }
-    // 垂直波形歪み
-    const finalResult = tempCtx.createImageData(width, height);
-    const verticalData = finalResult.data;
-
-    const verticalFrequency = 0.03;
-    const verticalAmplitude = 18;
-
-    for (let x = 0; x < width; x++) {
-      const offset = Math.sin(x * verticalFrequency + wavePhase) * verticalAmplitude;
-      for (let y = 0; y < height; y++) {
-      const srcY = Math.round(y + offset);
-      if (srcY >= 0 && srcY < height) {
-        const srcIdx = (srcY * width + x) * 4;
-        const dstIdx = (y * width + x) * 4;
-        verticalData[dstIdx] = newData[srcIdx];
-        verticalData[dstIdx + 1] = newData[srcIdx + 1];
-        verticalData[dstIdx + 2] = newData[srcIdx + 2];
-        verticalData[dstIdx + 3] = newData[srcIdx + 3];
-      }
-      }
-    }
-
-    return finalResult;
-  };
-
-  const applyRedBlackFilter = (imageData: ImageData): ImageData => {
-    const { width, height, data } = imageData;
-    const newImageData = new ImageData(width, height);
-    const newData = newImageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      newData[i] = Math.min(255, gray * 1.5 + 80);
-      newData[i + 1] = Math.max(0, gray * 0.2 - 40);
-      newData[i + 2] = Math.max(0, gray * 0.2 - 40);
-      newData[i + 3] = 255;
-    }
-
-    return newImageData;
-  };
+  const faceCenterRef = useRef<{x: number, y: number} | null>(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -100,70 +26,152 @@ const CrtMonitor: React.FC<CrtMonitorProps> = ({ stream, noiseIntensity = 0.15, 
     }
   }, [stream]);
 
+  // 顔の中心を計算（鼻先などの代表点を使用するか、全点の平均をとる）
+  useEffect(() => {
+    if (faceLandmarks && faceLandmarks.length > 0) {
+      // 1番（鼻先）や平均など。ここでは全点の平均をとる
+      let sumX = 0;
+      let sumY = 0;
+      faceLandmarks.forEach(lp => {
+        sumX += lp.x;
+        sumY += lp.y;
+      });
+      faceCenterRef.current = {
+        x: sumX / faceLandmarks.length,
+        y: sumY / faceLandmarks.length
+      };
+    }
+  }, [faceLandmarks]);
+
+  const applySwirlDistortion = (imageData: ImageData, centerX: number, centerY: number, radius: number, angle: number): ImageData => {
+    const { width, height, data } = imageData;
+    const newImageData = new ImageData(new Uint8ClampedArray(data), width, height);
+    const newData = newImageData.data;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < radius) {
+          const percent = (radius - distance) / radius;
+          const theta = angle * percent * percent;
+          const cosTheta = Math.cos(theta);
+          const sinTheta = Math.sin(theta);
+
+          const sourceX = Math.round(centerX + dx * cosTheta - dy * sinTheta);
+          const sourceY = Math.round(centerY + dx * sinTheta + dy * cosTheta);
+
+          if (sourceX >= 0 && sourceX < width && sourceY >= 0 && sourceY < height) {
+            const destIdx = (y * width + x) * 4;
+            const srcIdx = (sourceY * width + sourceX) * 4;
+            newData[destIdx] = data[srcIdx];
+            newData[destIdx + 1] = data[srcIdx + 1];
+            newData[destIdx + 2] = data[srcIdx + 2];
+            newData[destIdx + 3] = data[srcIdx + 3];
+          }
+        }
+      }
+    }
+    return newImageData;
+  };
+
+  const applyHorrorFilter = (imageData: ImageData): ImageData => {
+    const { data } = imageData;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // グレースケール化
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      
+      // 赤黒いコントラスト強調
+      // 暗い部分はより黒く、明るい部分は赤く
+      if (gray < 128) {
+        data[i] = gray * 0.8;   // Red
+        data[i + 1] = 0;        // Green
+        data[i + 2] = 0;        // Blue
+      } else {
+        data[i] = Math.min(255, gray * 1.5);
+        data[i + 1] = (gray - 128) * 0.2;
+        data[i + 2] = (gray - 128) * 0.2;
+      }
+    }
+    return imageData;
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     let animationFrameId: number;
 
     const render = () => {
-      if (isHorror || video.readyState === video.HAVE_ENOUGH_DATA) {
-        if (canvas.width !== (isHorror ? 800 : video.videoWidth)) {
-          canvas.width = isHorror ? 800 : video.videoWidth;
-          canvas.height = isHorror ? 600 : video.videoHeight;
+      if (video.readyState === video.HAVE_ENOUGH_DATA || isHorror) {
+        if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
         }
-
-        const jitterX = (Math.random() - 0.5) * (4 + noiseIntensity * 20);
-        const jitterY = (Math.random() - 0.5) * (4 + noiseIntensity * 20);
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        ctx.save();
-        ctx.translate(jitterX, jitterY);
-        
         if (isHorror) {
+          // ホラーモード：キャプチャした画像を表示
           if (!capturedFrameRef.current && video.readyState === video.HAVE_ENOUGH_DATA) {
-            try {
-              ctx.drawImage(video, -5, -5, canvas.width + 10, canvas.height + 10);
-              capturedFrameRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            } catch {}
+            ctx.drawImage(video, 0, 0);
+            capturedFrameRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
           }
+
           if (capturedFrameRef.current) {
-            const distorted = applyWaveDistortion(capturedFrameRef.current, 0);
-            const filtered = applyRedBlackFilter(distorted);
-            ctx.putImageData(filtered, 0, 0);
+            let processedData = new ImageData(
+              new Uint8ClampedArray(capturedFrameRef.current.data),
+              capturedFrameRef.current.width,
+              capturedFrameRef.current.height
+            );
+
+            // 渦巻き歪み
+            if (faceCenterRef.current) {
+              const cx = faceCenterRef.current.x * canvas.width;
+              const cy = faceCenterRef.current.y * canvas.height;
+              processedData = applySwirlDistortion(processedData, cx, cy, 250, Math.PI * 2.5);
+            }
+
+            // ホラーフィルター
+            processedData = applyHorrorFilter(processedData);
+            
+            ctx.putImageData(processedData, 0, 0);
           }
         } else {
-          ctx.drawImage(video, -5, -5, canvas.width + 10, canvas.height + 10);
+          // 通常モード：カメラ映像
+          ctx.drawImage(video, 0, 0);
         }
-        ctx.restore();
 
-        // 2. 砂嵐ノイズ
-        if (noiseEnabledRef.current) {
+        // 砂嵐ノイズ
+        if (noiseIntensity > 0) {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
-
           for (let i = 0; i < data.length; i += 4) {
             if (Math.random() < noiseIntensity) {
               const noise = Math.random() * 255;
               data[i] = noise;
               data[i + 1] = noise;
               data[i + 2] = noise;
-              data[i + 3] = 255; 
             }
           }
           ctx.putImageData(imageData, 0, 0);
-
-          // 3. 水平同期ズレ
-          if (Math.random() > (1 - noiseIntensity)) {
-            const sliceY = Math.random() * canvas.height;
-            const sliceH = Math.random() * (20 + noiseIntensity * 100);
-            const hOffset = (Math.random() - 0.5) * (20 + noiseIntensity * 200);
-            ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceH, hOffset, sliceY, canvas.width, sliceH);
+          
+          // 水平同期ズレ風のライン
+          if (Math.random() < noiseIntensity * 0.3) {
+            const h = Math.random() * 20;
+            const y = Math.random() * canvas.height;
+            const offset = (Math.random() - 0.5) * 40 * noiseIntensity;
+            ctx.drawImage(canvas, 0, y, canvas.width, h, offset, y, canvas.width, h);
           }
         }
       }
